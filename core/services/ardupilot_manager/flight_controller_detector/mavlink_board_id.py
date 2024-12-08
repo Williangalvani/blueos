@@ -1,0 +1,129 @@
+from typing import Optional
+import struct
+import serial
+
+# Hardcoded MAVLink COMMAND_LONG message to request AUTOPILOT_VERSION
+# This is MAVLink 2.0: system_id=255, component_id=0, requesting message ID 148
+REQUEST_AUTOPILOT_VERSION_MSG = bytes.fromhex(
+    "fd1e000000ff004c0000000014430000000000000000000000000000000000000000000000000002ec38"
+)
+
+
+def parse_autopilot_version_board_id(data: bytes) -> Optional[int]:
+    """
+    Manually parse MAVLink AUTOPILOT_VERSION message to extract board_id field.
+
+    The AUTOPILOT_VERSION message (ID 148) has the following structure:
+    - Header: 1 byte (magic byte 0xFD for MAVLink 2.0)
+    - Payload length: 1 byte
+    - Incompatibility flags: 1 byte
+    - Compatibility flags: 1 byte
+    - Sequence: 1 byte
+    - System ID: 1 byte
+    - Component ID: 1 byte
+    - Message ID: 3 bytes (little endian)
+    - Payload: variable
+    - Checksum: 2 bytes
+
+    In the AUTOPILOT_VERSION payload, board_id is at offset 28 (uint32)
+
+    Args:
+        data: Raw bytes from serial port
+
+    Returns:
+        board_id as integer, or None if parsing fails
+    """
+    i = 0
+    while i < len(data):
+        # Look for MAVLink 2.0 magic byte
+        if data[i] == 0xFD:
+            if i + 10 > len(data):
+                break
+
+            msg_id = struct.unpack("<I", data[i + 7 : i + 10] + b"\x00")[0]  # 24-bit little endian
+
+            # Check if this is AUTOPILOT_VERSION (148)
+            if msg_id == 148:
+                header_len = 10
+                payload_start = i + header_len
+
+                if payload_start + 32 <= len(data):  # board_id is at offset 28, uint32 = 4 bytes
+                    # Extract board_id (uint32 at offset 28)
+                    board_id_bytes = data[payload_start + 28 : payload_start + 32]
+                    board_id = struct.unpack("<I", board_id_bytes)[0]
+                    return int(board_id)
+
+            i += 1
+        # Also check for MAVLink 1.0 magic byte (0xFE) just in case
+        elif data[i] == 0xFE:
+            if i + 6 > len(data):
+                break
+
+            msg_id = data[i + 5]
+
+            # AUTOPILOT_VERSION is usually MAVLink 2.0, but handle just in case
+            if msg_id == 148:
+                header_len = 6
+                payload_start = i + header_len
+
+                if payload_start + 32 <= len(data):
+                    board_id_bytes = data[payload_start + 28 : payload_start + 32]
+                    board_id = struct.unpack("<I", board_id_bytes)[0]
+                    return int(board_id)
+
+            i += 1
+        else:
+            i += 1
+
+    return None
+
+
+def get_board_id(port_path: str, baudrate: int = 115200, timeout: float = 2.0) -> Optional[int]:
+    """
+    Connect to serial port, request AUTOPILOT_VERSION, and extract board_id.
+
+    This function does NOT require pymavlink - it uses hardcoded request bytes
+    and manually parses the response.
+
+    Args:
+        port_path: Serial port path (e.g., '/dev/ttyUSB0', '/dev/ttyACM0')
+        baudrate: Baud rate for serial communication (default: 115200)
+        timeout: Read timeout in seconds (default: 2.0)
+
+    Returns:
+        board_id as integer, or None if failed
+    """
+    try:
+        with serial.Serial(port_path, baudrate, timeout=timeout) as ser:
+            # Clear any existing data
+            ser.reset_input_buffer()
+
+            # Send the hardcoded request message
+            ser.write(REQUEST_AUTOPILOT_VERSION_MSG)
+
+            # Read response
+            response_data = b""
+            for _ in range(10):
+                chunk = ser.read(256)
+                if not chunk:
+                    break
+
+                response_data += chunk
+
+                # Try parsing what we have so far
+                board_id = parse_autopilot_version_board_id(response_data)
+                if board_id is not None:
+                    return board_id >> 16
+
+            # Final attempt to parse all collected data
+            board_id = parse_autopilot_version_board_id(response_data)
+            if board_id is not None:
+                return int(board_id) >> 16
+            return None
+
+    except serial.SerialException as e:
+        print(f"Serial port error on {port_path}: {e}")
+        return None
+    except Exception as e:
+        print(f"Error getting board version: {e}")
+        return None
