@@ -105,7 +105,6 @@ class Platform(BaseModel):
 
     name: str
     platform_type: PlatformType
-    board_id: Optional[int]
 
     @staticmethod
     def SITL() -> "Platform":

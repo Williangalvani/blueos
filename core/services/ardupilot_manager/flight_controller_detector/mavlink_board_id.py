@@ -1,5 +1,6 @@
 from typing import Optional
 import struct
+import time
 import serial
 
 # Hardcoded MAVLink COMMAND_LONG message to request AUTOPILOT_VERSION
@@ -94,26 +95,36 @@ def get_board_id(port_path: str, baudrate: int = 115200, timeout: float = 2.0) -
         board_id as integer, or None if failed
     """
     try:
-        with serial.Serial(port_path, baudrate, timeout=timeout) as ser:
+        # Set a short timeout for individual reads
+        with serial.Serial(port_path, baudrate, timeout=0.2, exclusive=True) as ser:
             # Clear any existing data
             ser.reset_input_buffer()
 
             # Send the hardcoded request message
             ser.write(REQUEST_AUTOPILOT_VERSION_MSG)
 
-            # Read response
+            # Read response with a maximum wait time of 200ms
             response_data = b""
-            for _ in range(10):
-                chunk = ser.read(256)
-                if not chunk:
-                    break
+            start_time = time.time()
+            max_wait_time = 0.2  # 200ms
 
-                response_data += chunk
+            while time.time() - start_time < max_wait_time:
+                # Only read what's available in the buffer to avoid blocking
+                if ser.in_waiting > 0:
+                    chunk = ser.read(ser.in_waiting)
+                    response_data += chunk
 
-                # Try parsing what we have so far
-                board_id = parse_autopilot_version_board_id(response_data)
-                if board_id is not None:
-                    return board_id >> 16
+                    # Try parsing what we have so far
+                    board_id = parse_autopilot_version_board_id(response_data)
+                    if board_id is not None:
+                        return board_id >> 16
+                else:
+                    # If nothing is waiting, do a small blocking read to wait for data
+                    # This will timeout after 200ms (set in Serial constructor)
+                    chunk = ser.read(1)
+                    if not chunk:
+                        break
+                    response_data += chunk
 
             # Final attempt to parse all collected data
             board_id = parse_autopilot_version_board_id(response_data)
