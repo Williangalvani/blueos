@@ -445,9 +445,10 @@ class AutoPilotManager(metaclass=Singleton):
                 logger.warning(str(error))
         await self.mavlink_manager.start(device)
 
-    @staticmethod
-    async def available_boards(include_bootloaders: bool = False) -> List[FlightController]:
+    async def available_boards(self, include_bootloaders: bool = False) -> List[FlightController]:
         all_boards = await BoardDetector.detect(True)
+        if self.current_board and self.current_board not in all_boards:
+            all_boards.append(self.current_board)
         if include_bootloaders:
             return all_boards
         return [board for board in all_boards if FlightControllerFlags.is_bootloader not in board.flags]
