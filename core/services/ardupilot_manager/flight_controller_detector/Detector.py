@@ -2,15 +2,13 @@ import asyncio
 from typing import List, Optional
 
 import serial
-
-
+from serial import SerialException
+from serial.tools.list_ports_linux import SysFS, comports
 from commonwealth.utils.decorators import temporary_cache
 from commonwealth.utils.general import is_running_as_root
-from serial.tools.list_ports_linux import SysFS, comports
 
 from flight_controller_detector.bootloader.px4_bootloader import PX4BootLoader
 from flight_controller_detector.linux.detector import LinuxFlightControllerDetector
-from flight_controller_detector.port_checker import is_port_in_use
 from flight_controller_detector.mavlink_board_id import get_board_id
 from typedefs import FlightController, FlightControllerFlags, Platform, PlatformType
 from loguru import logger

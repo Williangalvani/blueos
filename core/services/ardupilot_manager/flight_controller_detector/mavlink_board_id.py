@@ -79,7 +79,7 @@ def parse_autopilot_version_board_id(data: bytes) -> Optional[int]:
     return None
 
 
-def get_board_id(port_path: str, baudrate: int = 115200, timeout: float = 2.0) -> Optional[int]:
+def get_board_id(port_path: str, baudrate: int = 115200) -> Optional[int]:
     """
     Connect to serial port, request AUTOPILOT_VERSION, and extract board_id.
 
@@ -89,7 +89,6 @@ def get_board_id(port_path: str, baudrate: int = 115200, timeout: float = 2.0) -
     Args:
         port_path: Serial port path (e.g., '/dev/ttyUSB0', '/dev/ttyACM0')
         baudrate: Baud rate for serial communication (default: 115200)
-        timeout: Read timeout in seconds (default: 2.0)
 
     Returns:
         board_id as integer, or None if failed
