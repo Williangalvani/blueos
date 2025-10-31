@@ -1,7 +1,9 @@
 from typing import Optional
+import asyncio
 import struct
 import time
 import serial
+from loguru import logger
 
 # Hardcoded MAVLink COMMAND_LONG message to request AUTOPILOT_VERSION
 # This is MAVLink 2.0: system_id=255, component_id=0, requesting message ID 148
@@ -79,19 +81,10 @@ def parse_autopilot_version_board_id(data: bytes) -> Optional[int]:
     return None
 
 
-def get_board_id(port_path: str, baudrate: int = 115200) -> Optional[int]:
+def _get_board_id_sync(port_path: str, baudrate: int = 115200) -> Optional[int]:
     """
-    Connect to serial port, request AUTOPILOT_VERSION, and extract board_id.
-
-    This function does NOT require pymavlink - it uses hardcoded request bytes
-    and manually parses the response.
-
-    Args:
-        port_path: Serial port path (e.g., '/dev/ttyUSB0', '/dev/ttyACM0')
-        baudrate: Baud rate for serial communication (default: 115200)
-
-    Returns:
-        board_id as integer, or None if failed
+    Synchronous implementation of board_id retrieval.
+    Internal function - use get_board_id() instead.
     """
     try:
         # Set a short timeout for individual reads
@@ -137,3 +130,27 @@ def get_board_id(port_path: str, baudrate: int = 115200) -> Optional[int]:
     except Exception as e:
         print(f"Error getting board version: {e}")
         return None
+
+
+async def get_board_id(port_path: str, baudrate: int = 115200) -> Optional[int]:
+    """
+    Connect to serial port, request AUTOPILOT_VERSION, and extract board_id.
+
+    This function does NOT require pymavlink - it uses hardcoded request bytes
+    and manually parses the response.
+
+    This is an async function that runs the blocking serial I/O in a thread pool
+    to avoid blocking the event loop.
+
+    Args:
+        port_path: Serial port path (e.g., '/dev/ttyUSB0', '/dev/ttyACM0')
+        baudrate: Baud rate for serial communication (default: 115200)
+
+    Returns:
+        board_id as integer, or None if failed
+    """
+    start = time.time()
+    board_id = await asyncio.to_thread(_get_board_id_sync, port_path, baudrate)
+    end = time.time()
+    logger.info(f"get_board_id took {end - start} seconds")
+    return board_id

@@ -39,11 +39,11 @@ class Detector:
         return port.product is not None and "BL" in port.product
 
     @staticmethod
-    @temporary_cache(
-        timeout_seconds=300
-    )  # what are the chances of someone switching between two boards in bootloader mode?
-    def ask_bootloader_for_board_id(port: SysFS) -> Optional[int]:
-        # Check if another process is already using this port
+    def _ask_bootloader_for_board_id_sync(port: SysFS) -> Optional[int]:
+        """
+        Synchronous implementation of bootloader board_id retrieval.
+        Internal function - use ask_bootloader_for_board_id() instead.
+        """
         try:
             logger.info(f"asking bootloader for board id on {port.device}")
             with serial.Serial(port.device, 115200, timeout=1, exclusive=True) as ser:
@@ -55,8 +55,16 @@ class Detector:
             return None
 
     @staticmethod
+    @temporary_cache(
+        timeout_seconds=300
+    )  # what are the chances of someone switching between two boards in bootloader mode?
+    async def ask_bootloader_for_board_id(port: SysFS) -> Optional[int]:
+        # Check if another process is already using this port
+        return await asyncio.to_thread(Detector._ask_bootloader_for_board_id_sync, port)
+
+    @staticmethod
     @temporary_cache(timeout_seconds=30)
-    def detect_serial_flight_controllers() -> List[FlightController]:
+    async def detect_serial_flight_controllers() -> List[FlightController]:
         """Check if a standalone flight controller is connected via usb/serial.
 
         Returns:
@@ -67,12 +75,12 @@ class Detector:
         for port in sorted_serial_ports:
             board_id = None
             if Detector.is_serial_bootloader(port):
-                board_id = Detector.ask_bootloader_for_board_id(port)
+                board_id = await Detector.ask_bootloader_for_board_id(port)
                 # https://github.com/mavlink/qgroundcontrol/blob/f68674f47b0ca03f23a50753280516b6fa129545/src/Vehicle/VehicleSetup/FirmwareUpgradeController.cc#L43
                 if board_id == 255:
                     board_id = 9  # px4_fmu-v3_default edge case
             if board_id is None:
-                board_id = get_board_id(port.device)
+                board_id = await get_board_id(port.device)
             if board_id is None:
                 continue
 
@@ -111,7 +119,7 @@ class Detector:
         """
         available: List[FlightController] = []
 
-        available.extend(cls().detect_serial_flight_controllers())
+        available.extend(await cls().detect_serial_flight_controllers())
 
         if include_sitl:
             available.append(Detector.detect_sitl())
